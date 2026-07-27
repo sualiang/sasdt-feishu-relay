@@ -17,25 +17,13 @@ const app = express();
 // 基础中间件
 // ============================================================
 
-// 手动捕获 Webhook POST 的原始 body 字节
-// 不依赖 express.text / express.json，直接从 stream 抓原始 buffer
-// 确保 HMAC-SHA256 使用的字节与飞书发出的完全一致
-app.use('/webhook', (req, res, next) => {
-  if (req.method !== 'POST') { next(); return; }
-  const chunks: Buffer[] = [];
-  req.on('data', (chunk: Buffer) => chunks.push(chunk));
-  req.on('end', () => {
-    const rawBuf = Buffer.concat(chunks);
-    // 存原始 buffer 的 UTF-8 字符串版本（用于 HMAC 和 JSON 解析）
-    const rawStr = rawBuf.toString('utf8');
-    (req as any).rawBody = rawStr;
-    try { req.body = JSON.parse(rawStr); } catch { req.body = {}; }
-    next();
-  });
-  req.on('error', () => next());
-});
-// 非 Webhook 路径用标准 JSON 解析
-app.use(express.json());
+// JSON 解析 + 原始 body 捕获（所有路径）
+// verify 回调在 express.json 解析前捕获原始 buffer，不影响 JSON 解析
+app.use(express.json({
+  verify: (_req, _res, buf) => {
+    (_req as any).rawBody = buf.toString('utf8');
+  },
+}));
 app.use(cors());
 app.use(requestLogger);
 app.use(responseTime);
