@@ -8,10 +8,11 @@ let tokenCache: { token: string; expiresAt: number } | null = null;
 /**
  * 获取飞书 tenant_access_token
  * 缓存直到过期前 5 分钟
+ * forceRefresh=true 时强制刷新（用于 99991668 等权限错误后重试）
  */
-async function getAccessToken(): Promise<string> {
+async function getAccessToken(forceRefresh = false): Promise<string> {
   const now = Date.now();
-  if (tokenCache && now < tokenCache.expiresAt - 300000) {
+  if (!forceRefresh && tokenCache && now < tokenCache.expiresAt - 300000) {
     return tokenCache.token;
   }
 
@@ -27,7 +28,8 @@ async function getAccessToken(): Promise<string> {
   });
 
   if (!response.ok) {
-    throw new Error(`获取飞书 token 失败: ${response.status}`);
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`获取飞书 token 失败: ${response.status} ${errBody}`);
   }
 
   const data: FeishuTokenResponse = await response.json();
@@ -50,6 +52,7 @@ export async function sendFeishuMessage(
   const log = getLogger();
   try {
     const token = await withRetry(() => getAccessToken(), { maxRetries: 2 });
+
     const body = JSON.stringify({
       receive_id: chatId,
       msg_type: 'text',
@@ -69,14 +72,61 @@ export async function sendFeishuMessage(
       },
     );
 
-    const data: FeishuApiResponse = await response.json();
+    const httpStatus = response.status;
+    const respBody = await response.text();
+    let data: FeishuApiResponse;
+    try {
+      data = JSON.parse(respBody);
+    } catch {
+      log.error('发送飞书消息：非 JSON 响应', { httpStatus, respBody: respBody.substring(0, 500) });
+      return;
+    }
+
     if (data.code !== 0) {
-      log.error('发送飞书消息失败', { code: data.code, message: data.message });
+      // 飞书 API 错误体字段名不统一，可能为 msg 或 message
+      const dataAny = data as any;
+      const errMsg = dataAny.msg || dataAny.message || String(data.code);
+      log.error('发送飞书消息失败', {
+        code: data.code,
+        message: errMsg,
+        httpStatus,
+        chatIdPrefix: chatId.substring(0, 10) + '...',
+      });
+
+      // 99991668：可能 token 权限不足，强制刷新 token 后重试一次
       if (data.code === 99991668) {
-        log.error('错误 99991668 常见原因：'
-          + '1. 机器人未添加到群聊 — 请手动将机器人拉入群；'
-          + '2. 应用权限不足 — 请在飞书开放平台检查 im:message 权限并重新发布；'
-          + '3. chat_id 错误 — 确认收到的 chat_id 与发送时一致');
+        log.info('尝试刷新 token 后重试...');
+        try {
+          const newToken = await getAccessToken(true);
+          const retryResp = await fetch(
+            `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${newToken}`,
+              },
+              body,
+              signal: AbortSignal.timeout(10000),
+            },
+          );
+          const retryData: FeishuApiResponse = await retryResp.json();
+          if (retryData.code !== 0) {
+            log.error('刷新 token 后重试仍然失败', {
+              code: retryData.code,
+              message: retryData.message,
+            });
+            log.error('99991668 可能原因：'
+              + '1. 飞书应用未添加 im:message 权限 — 请在开放平台检查；'
+              + '2. 权限变更后未重新发布 — 必须发布新版本才能生效；'
+              + '3. 机器人未加入群聊 — 在群设置中添加机器人；'
+              + '4. 如果私聊报错 — 需要用户先主动给机器人发一条消息');
+          } else {
+            log.info('刷新 token 后重试成功 ✅');
+          }
+        } catch (retryErr) {
+          log.error('刷新 token 重试异常', { error: retryErr instanceof Error ? retryErr.message : String(retryErr) });
+        }
       }
     }
   } catch (err) {

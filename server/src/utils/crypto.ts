@@ -84,18 +84,25 @@ export function computeAllVariants(
 }
 
 /**
- * 飞书签名校验 - 尝试所有已知变体
+ * 飞书事件回调签名校验
+ *
+ * 算法已验证：SHA256(timestamp + nonce + rawBody)
+ * 纯 SHA256 哈希，无 key，输出 hex
+ *
+ * 验证方式：飞书开放平台 → 事件与回调 → 订阅配置 → 请求地址 URL
+ * 开启「签名校验」开关后，飞书每个 POST 请求携带 X-Lark-Signature
  */
 export function verifyFeishuSignature(
   timestamp: string,
   nonce: string,
   rawBody: string,
-  appSecret: string,
-  verificationToken: string,
+  _appSecret: string,
+  _verificationToken: string,
   expectedSign: string,
 ): boolean {
-  const allVariants = computeAllVariants(timestamp, nonce, rawBody, appSecret, verificationToken);
-  return allVariants.some((v) => v.hex === expectedSign);
+  const signStr = timestamp + nonce + rawBody;
+  const signature = crypto.createHash('sha256').update(signStr, 'utf8').digest('hex');
+  return signature === expectedSign;
 }
 
 export function generateId(): string {
