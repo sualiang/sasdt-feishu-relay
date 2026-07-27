@@ -52,11 +52,22 @@ export async function sendFeishuMessage(
   const log = getLogger();
   try {
     const token = await withRetry(() => getAccessToken(), { maxRetries: 2 });
+    log.info('[FeishuMsg] token 获取成功', {
+      tokenPrefix: token.substring(0, 8) + '...',
+      tokenLength: token.length,
+      cacheHit: tokenCache?.token === token ? 'cache' : 'fresh',
+    });
 
     const body = JSON.stringify({
       receive_id: chatId,
       msg_type: 'text',
       content: JSON.stringify({ text }),
+    });
+    log.info('[FeishuMsg] 准备发送', {
+      url: `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id`,
+      chatIdPrefix: chatId.substring(0, 10) + '...',
+      bodyPreview: body.substring(0, 200),
+      authorizationPrefix: `Bearer ${token.substring(0, 8)}...`,
     });
 
     const response = await fetch(
@@ -74,6 +85,11 @@ export async function sendFeishuMessage(
 
     const httpStatus = response.status;
     const respBody = await response.text();
+    log.info('[FeishuMsg] 响应', {
+      httpStatus,
+      bodyPrefix: respBody.substring(0, 300),
+      bodyLength: respBody.length,
+    });
     let data: FeishuApiResponse;
     try {
       data = JSON.parse(respBody);
