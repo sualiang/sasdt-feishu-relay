@@ -26,10 +26,14 @@ export function verifyFeishuSignature(
   expectedSign: string,
 ): boolean {
   const signStr = timestamp + nonce + rawBody;
-  const signature = crypto.createHmac('sha256', appSecret)
-    .update(signStr, 'utf8')
-    .digest('hex');
-  return signature === expectedSign;
+  const hmac = crypto.createHmac('sha256', appSecret)
+    .update(signStr, 'utf8');
+  const rawDigest = hmac.digest();
+  const hexSign = rawDigest.toString('hex');
+  if (hexSign === expectedSign) return true;
+  // 飞书签名也可能用 base64 编码
+  const base64Sign = rawDigest.toString('base64');
+  return base64Sign === expectedSign;
 }
 
 
