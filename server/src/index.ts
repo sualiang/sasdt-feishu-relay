@@ -17,12 +17,21 @@ const app = express();
 // 基础中间件
 // ============================================================
 
-// raw body 保留（飞书签名校验需要原始请求体）
-app.use(express.json({
-  verify: (_req, _res, buf) => {
-    (_req as any).rawBody = buf.toString('utf8');
-  },
-}));
+// 飞书 Webhook 路径：先用 express.text 获取原始 body 字符串
+// 保证签名使用的原始字节与飞书发送的完全一致
+app.use('/webhook', express.text({ type: '*/*' }));
+// Webhook 路径：保存 rawBody（原始字符串），再 parse JSON
+app.use('/webhook', (req, _res, next) => {
+  if (typeof req.body === 'string') {
+    (req as any).rawBody = req.body;
+    try {
+      req.body = JSON.parse(req.body);
+    } catch { /* 保持原样 */ }
+  }
+  next();
+});
+// 其他路径用标准 JSON 解析
+app.use(express.json());
 app.use(cors());
 app.use(requestLogger);
 app.use(responseTime);

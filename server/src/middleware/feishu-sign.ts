@@ -54,7 +54,9 @@ export function feishuSignMiddleware(req: Request, res: Response, next: NextFunc
   );
 
   if (!isValid) {
-    // debug：算一遍看看差异
+    // debug：输出 rawBody 和 JSON.stringify(body) 的前 100 位对比
+    const rawPreview = rawBody.substring(0, 100);
+    const jsonPreview = JSON.stringify(req.body).substring(0, 100);
     const signStr = timestamp + nonce + rawBody;
     const hmacHex = crypto.createHmac('sha256', config.feishu.appSecret)
       .update(signStr, 'utf8')
@@ -65,6 +67,9 @@ export function feishuSignMiddleware(req: Request, res: Response, next: NextFunc
       computed: hmacHex.substring(0, 16) + '...',
       expected: signature.substring(0, 16) + '...',
       bodyLength: rawBody.length,
+      rawBodyPreview: rawPreview,
+      jsonBodyPreview: jsonPreview,
+      rawBodyEqualsJson: rawPreview === jsonPreview,
     });
     res.status(401).json({ code: 401, message: '签名校验失败：签名无效' });
     return;
