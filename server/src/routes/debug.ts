@@ -1,18 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { computeHmacForDebug, verifyFeishuSignature } from '../utils/crypto.js';
+import { computeAllVariants, verifyFeishuSignature } from '../utils/crypto.js';
 import { getConfig } from '../config/index.js';
 
 const router = Router();
 
 /**
  * POST /debug/hmac
- * 调试接口：传入飞书请求参数，对比服务端算出的 HMAC 和飞书给的签名
- * 用于排查签名校验不通过的原因
- *
- * @body timestamp  - X-Lark-Request-Timestamp
- * @body nonce      - X-Lark-Request-Nonce
- * @body body       - 原始请求体字符串
- * @body expected   - X-Lark-Signature
+ * 调试接口：传入飞书请求参数，对比所有签名变体
+ * 用于快速确定飞书实际使用的是哪种签名算法
  */
 router.post('/hmac', (req: Request, res: Response) => {
   const { timestamp, nonce, body: rawBody, expected } = req.body;
@@ -27,27 +22,23 @@ router.post('/hmac', (req: Request, res: Response) => {
   }
 
   const config = getConfig();
-  const computed = computeHmacForDebug(timestamp, nonce, rawBody, config.feishu.appSecret);
+  const variants = computeAllVariants(timestamp, nonce, rawBody, config.feishu.appSecret, config.feishu.verificationToken);
 
-  const valid = verifyFeishuSignature(timestamp, nonce, rawBody, config.feishu.appSecret, expected);
-
-  const results: Record<string, string> = {
-    hexWithoutBody: computed.hexWithoutBody,
-    hexWithBody: computed.hexWithBody,
-    hexWithBodyAndNl: computed.hexWithBodyAndNl,
-  };
-  // 标记哪个匹配
-  for (const [key, val] of Object.entries(results)) {
-    results[key] = val + (val === expected ? ' ← 匹配!' : '');
+  const results: Record<string, string> = {};
+  for (const v of variants) {
+    results[v.name] = `${v.hex} (algo=${v.algo}, key=${v.key}, data="${v.data}")${v.hex === expected ? ' ← 匹配!' : ''}`;
   }
+
+  const anyMatch = variants.some((v) => v.hex === expected);
 
   res.json({
     code: 0,
-    message: valid ? '签名校验通过' : '签名校验不通过',
+    message: anyMatch ? '✅ 找到匹配的签名算法' : '❌ 所有变体均不匹配',
     data: {
-      bodyLength: computed.bodyLength,
-      appSecretPrefix: config.feishu.appSecret.substring(0, 4) + '...',
-      expected: expected,
+      expected,
+      bodyLength: rawBody.length,
+      appSecretPrefix: config.feishu.appSecret.substring(0, 6) + '...',
+      verificationTokenPrefix: config.feishu.verificationToken.substring(0, 6) + '...',
       results,
     },
   });

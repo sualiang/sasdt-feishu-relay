@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { getConfig } from '../config/index.js';
-import { verifyFeishuSignature, computeHmacForDebug } from '../utils/crypto.js';
+import { verifyFeishuSignature, computeAllVariants } from '../utils/crypto.js';
 import { getLogger } from './logger.js';
 
 /**
@@ -43,26 +43,26 @@ export function feishuSignMiddleware(req: Request, res: Response, next: NextFunc
   const config = getConfig();
   const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
-  // 飞书事件回调签名：HMAC-SHA256(appSecret, timestamp + nonce + body)
+  // 飞书事件回调签名：尝试所有已知变体
   const isValid = verifyFeishuSignature(
     timestamp,
     nonce,
     rawBody,
     config.feishu.appSecret,
+    config.feishu.verificationToken,
     signature,
   );
 
   if (!isValid) {
-    const debug = computeHmacForDebug(timestamp, nonce, rawBody, config.feishu.appSecret);
+    const variants = computeAllVariants(timestamp, nonce, rawBody, config.feishu.appSecret, config.feishu.verificationToken);
+    const variantLog: Record<string, string> = {};
+    for (const v of variants) {
+      variantLog[v.name] = v.hex.substring(0, 16) + '...';
+    }
     getLogger().warn('飞书签名校验失败：签名不匹配', {
-      timestamp: timestamp.substring(0, 10),
-      nonce: nonce.substring(0, 8),
       expected: signature.substring(0, 16) + '...',
-      hexWithoutBody: debug.hexWithoutBody.substring(0, 16) + '...',
-      hexWithBody: debug.hexWithBody.substring(0, 16) + '...',
-      hexWithBodyAndNl: debug.hexWithBodyAndNl.substring(0, 16) + '...',
-      bodyLength: debug.bodyLength,
-      rawBodyPreview: rawBody.substring(0, 200),
+      bodyLength: rawBody.length,
+      ...variantLog,
     });
     res.status(401).json({ code: 401, message: '签名校验失败：签名无效' });
     return;
