@@ -33,12 +33,18 @@ async function getAccessToken(forceRefresh = false): Promise<string> {
   }
 
   const data: FeishuTokenResponse = await response.json();
+  if (data.code !== 0) {
+    throw new Error(`获取飞书 token 失败: code=${data.code} msg=${data.msg}`);
+  }
+  if (!data.tenant_access_token) {
+    throw new Error(`获取飞书 token 失败: tenant_access_token 为空, code=${data.code}, expire=${data.expire}`);
+  }
   tokenCache = {
-    token: data.access_token,
+    token: data.tenant_access_token,
     expiresAt: now + data.expire * 1000,
   };
 
-  return data.access_token;
+  return data.tenant_access_token;
 }
 
 /**

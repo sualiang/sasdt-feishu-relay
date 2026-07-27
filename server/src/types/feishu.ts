@@ -70,7 +70,8 @@ export interface FeishuApiResponse<T = unknown> {
 
 /** 飞书 token 响应 */
 export interface FeishuTokenResponse {
-  access_token: string;
-  token_type: string;
+  code: number;
+  msg: string;
+  tenant_access_token: string;
   expire: number;
 }
