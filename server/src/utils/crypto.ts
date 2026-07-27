@@ -6,17 +6,12 @@ import crypto from 'node:crypto';
  * 算法：HMAC-SHA256(key=appSecret, data=timestamp + nonce + rawBody)
  * 将结果（hex）与请求头 X-Lark-Signature 比对
  *
- * 飞书事件订阅有 2 种验证模式：
- * 1. 明文模式 — 只比对请求体中的 token 字段 vs Verification Token
- * 2. 签名模式 — 请求头有 X-Lark-Signature，
- *    算法为 HMAC-SHA256(appSecret, timestamp + nonce + body)，hex 输出
- *
  * @param timestamp    - 请求头 X-Lark-Request-Timestamp
  * @param nonce        - 请求头 X-Lark-Request-Nonce
- * @param rawBody      - 原始请求体字符串（必须与飞书发送的字节完全一致）
- * @param appSecret    - 飞书 App Secret（HMAC 密钥，不是 Verification Token）
+ * @param rawBody      - 原始请求体字符串
+ * @param appSecret    - 飞书 App Secret
  * @param expectedSign - 请求头 X-Lark-Signature
- * @returns 签名是否匹配
+ * @returns { valid: boolean, detail?: { hexBody: string } }
  */
 export function verifyFeishuSignature(
   timestamp: string,
@@ -31,15 +26,49 @@ export function verifyFeishuSignature(
   const rawDigest = hmac.digest();
   const hexSign = rawDigest.toString('hex');
   if (hexSign === expectedSign) return true;
-  // 飞书签名也可能用 base64 编码
   const base64Sign = rawDigest.toString('base64');
-  return base64Sign === expectedSign;
+  if (base64Sign === expectedSign) return true;
+
+  // 也试一下 body + '\n'（Nginx 有时会在 body 后加换行）
+  const signStrNl = timestamp + nonce + rawBody + '\n';
+  const hmacNl = crypto.createHmac('sha256', appSecret).update(signStrNl, 'utf8').digest('hex');
+  if (hmacNl === expectedSign) return true;
+
+  return false;
 }
 
-
 /**
- * 生成随机 ID
+ * 计算 HMAC-SHA256 签名（用于 debug 对比）
  */
+export function computeHmacForDebug(
+  timestamp: string,
+  nonce: string,
+  rawBody: string,
+  appSecret: string,
+): {
+  hexWithoutBody: string;
+  hexWithBody: string;
+  hexWithBodyAndNl: string;
+  bodyLength: number;
+} {
+  // 只验 timestamp+nonce，看 app_secret 对不对
+  const noBody = crypto.createHmac('sha256', appSecret)
+    .update(timestamp + nonce, 'utf8').digest('hex');
+  // 标准算法
+  const withBody = crypto.createHmac('sha256', appSecret)
+    .update(timestamp + nonce + rawBody, 'utf8').digest('hex');
+  // 带换行
+  const withBodyNl = crypto.createHmac('sha256', appSecret)
+    .update(timestamp + nonce + rawBody + '\n', 'utf8').digest('hex');
+
+  return {
+    hexWithoutBody: noBody,
+    hexWithBody: withBody,
+    hexWithBodyAndNl: withBodyNl,
+    bodyLength: rawBody.length,
+  };
+}
+
 export function generateId(): string {
   return crypto.randomUUID();
 }

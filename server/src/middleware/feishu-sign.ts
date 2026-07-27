@@ -1,7 +1,6 @@
-import crypto from 'node:crypto';
 import { Request, Response, NextFunction } from 'express';
 import { getConfig } from '../config/index.js';
-import { verifyFeishuSignature } from '../utils/crypto.js';
+import { verifyFeishuSignature, computeHmacForDebug } from '../utils/crypto.js';
 import { getLogger } from './logger.js';
 
 /**
@@ -54,22 +53,16 @@ export function feishuSignMiddleware(req: Request, res: Response, next: NextFunc
   );
 
   if (!isValid) {
-    // debug：输出 rawBody 和 JSON.stringify(body) 的前 100 位对比
-    const rawPreview = rawBody.substring(0, 100);
-    const jsonPreview = JSON.stringify(req.body).substring(0, 100);
-    const signStr = timestamp + nonce + rawBody;
-    const hmacHex = crypto.createHmac('sha256', config.feishu.appSecret)
-      .update(signStr, 'utf8')
-      .digest('hex');
+    const debug = computeHmacForDebug(timestamp, nonce, rawBody, config.feishu.appSecret);
     getLogger().warn('飞书签名校验失败：签名不匹配', {
       timestamp: timestamp.substring(0, 10),
       nonce: nonce.substring(0, 8),
-      computed: hmacHex.substring(0, 16) + '...',
       expected: signature.substring(0, 16) + '...',
-      bodyLength: rawBody.length,
-      rawBodyPreview: rawPreview,
-      jsonBodyPreview: jsonPreview,
-      rawBodyEqualsJson: rawPreview === jsonPreview,
+      hexWithoutBody: debug.hexWithoutBody.substring(0, 16) + '...',
+      hexWithBody: debug.hexWithBody.substring(0, 16) + '...',
+      hexWithBodyAndNl: debug.hexWithBodyAndNl.substring(0, 16) + '...',
+      bodyLength: debug.bodyLength,
+      rawBodyPreview: rawBody.substring(0, 200),
     });
     res.status(401).json({ code: 401, message: '签名校验失败：签名无效' });
     return;
