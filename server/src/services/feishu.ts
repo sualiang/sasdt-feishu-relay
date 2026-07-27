@@ -72,6 +72,12 @@ export async function sendFeishuMessage(
     const data: FeishuApiResponse = await response.json();
     if (data.code !== 0) {
       log.error('发送飞书消息失败', { code: data.code, message: data.message });
+      if (data.code === 99991668) {
+        log.error('错误 99991668 常见原因：'
+          + '1. 机器人未添加到群聊 — 请手动将机器人拉入群；'
+          + '2. 应用权限不足 — 请在飞书开放平台检查 im:message 权限并重新发布；'
+          + '3. chat_id 错误 — 确认收到的 chat_id 与发送时一致');
+      }
     }
   } catch (err) {
     log.error('发送飞书消息异常', { error: err instanceof Error ? err.message : String(err) });

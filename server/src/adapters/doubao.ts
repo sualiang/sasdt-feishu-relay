@@ -2,24 +2,30 @@ import { AIAdapter, AIResponse, MessageContext } from '../types/adapter.js';
 
 /**
  * 豆包 API 适配器
- * 通过豆包桌面客户端 API 调用
- * TODO: 待豆包 API 地址确认后实现
+ * 通过火山引擎方舟 API 调用
+ * 未配置 API Key 时自动降级为 Echo 模式
  */
 export class DoubaoAdapter implements AIAdapter {
   name = 'doubao';
 
   private apiKey: string;
   private systemPrompt: string;
+  /** 是否为透传/echo 模式（无 API Key 时启用） */
+  private echoMode: boolean;
 
   constructor(apiKey: string, systemPrompt?: string) {
     this.apiKey = apiKey;
     this.systemPrompt = systemPrompt || '你是豆包，一个智能助手，请用中文回答。';
+    this.echoMode = !apiKey;
   }
 
   async process(message: string, _context?: MessageContext): Promise<AIResponse> {
-    // 豆包 API 待接入，暂返回占位
-    if (!this.apiKey) {
-      return { text: `[豆包] 收到消息，API 尚未配置。内容：${message.substring(0, 100)}` };
+    // 无 API Key 时降级为 Echo 模式
+    if (this.echoMode) {
+      return {
+        text: `[豆包 Echo] ${message}`,
+        raw: { mode: 'echo' },
+      };
     }
 
     try {

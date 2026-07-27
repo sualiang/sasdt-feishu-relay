@@ -43,16 +43,21 @@ export function feishuSignMiddleware(req: Request, res: Response, next: NextFunc
   const config = getConfig();
   const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
+  // 飞书事件回调签名算法用 Verification Token，不是 App Secret
   const isValid = verifyFeishuSignature(
     timestamp,
     nonce,
     rawBody,
-    config.feishu.appSecret,
+    config.feishu.verificationToken,
     signature,
   );
 
   if (!isValid) {
-    getLogger().warn('飞书签名校验失败：签名不匹配');
+    getLogger().warn('飞书签名校验失败：签名不匹配', {
+      timestamp: timestamp.substring(0, 10),
+      nonce: nonce.substring(0, 8),
+      rawBodyPreview: rawBody.substring(0, 200),
+    });
     res.status(401).json({ code: 401, message: '签名校验失败：签名无效' });
     return;
   }
