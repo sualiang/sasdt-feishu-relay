@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Request, Response, NextFunction } from 'express';
 import { getConfig } from '../config/index.js';
 import { verifyFeishuSignature } from '../utils/crypto.js';
@@ -43,20 +44,27 @@ export function feishuSignMiddleware(req: Request, res: Response, next: NextFunc
   const config = getConfig();
   const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
-  // 飞书事件回调签名算法用 Verification Token，不是 App Secret
+  // 飞书事件回调签名：HMAC-SHA256(appSecret, timestamp + nonce + body)
   const isValid = verifyFeishuSignature(
     timestamp,
     nonce,
     rawBody,
-    config.feishu.verificationToken,
+    config.feishu.appSecret,
     signature,
   );
 
   if (!isValid) {
+    // debug：算一遍看看差异
+    const signStr = timestamp + nonce + rawBody;
+    const hmacHex = crypto.createHmac('sha256', config.feishu.appSecret)
+      .update(signStr, 'utf8')
+      .digest('hex');
     getLogger().warn('飞书签名校验失败：签名不匹配', {
       timestamp: timestamp.substring(0, 10),
       nonce: nonce.substring(0, 8),
-      rawBodyPreview: rawBody.substring(0, 200),
+      computed: hmacHex.substring(0, 16) + '...',
+      expected: signature.substring(0, 16) + '...',
+      bodyLength: rawBody.length,
     });
     res.status(401).json({ code: 401, message: '签名校验失败：签名无效' });
     return;
